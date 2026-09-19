@@ -10,7 +10,12 @@ app = FastAPI(title="VedASIC Backend", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://ece24bech48-ctrl.github.io",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500"
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -215,7 +220,7 @@ def health():
 
     return {
         "status": "online",
-
+        "message": "VedASIC backend is running.",
         "tools": {
             "iverilog": check_tool("iverilog"),
             "vvp": check_tool("vvp"),
