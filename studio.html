@@ -1,1 +1,1243 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>VedASIC Studio</title><script src="https://cdn.tailwindcss.com"></script><script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script><script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script><script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script><script>window.require={paths:{vs:'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'}};</script><script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script><script src="https://cdn.jsdelivr.net/npm/wavedrom@3.5.0/wavedrom.min.js"></script><link rel="stylesheet" href="styles.css"><style>body{overflow:hidden}.studio{height:calc(100vh - 75px);display:grid;grid-template-columns:1fr 1fr;background:#050914}.pane{min-width:0;border-right:1px solid rgba(92,210,255,.16)}.editor-wrap{height:100%;display:grid;grid-template-rows:auto 1fr auto}.bar{padding:10px 14px;background:#08111f;border-bottom:1px solid rgba(92,210,255,.16);display:flex;justify-content:space-between;align-items:center}.tab{font-family:'Space Mono';font-size:12px;color:#8da2ba}.run{border:0;border-radius:8px;padding:9px 15px;background:#55ddff;color:#03101c;font-weight:800;cursor:pointer}.run:disabled{opacity:.5;cursor:wait}.editor{min-height:0}.bottom{height:170px;overflow:auto;background:#02060e;padding:14px;font-family:'Space Mono';font-size:12px}.output-title{color:#55ddff;margin-bottom:8px}.error{color:#ff7d96;white-space:pre-wrap}.ok{color:#65f1b1}.wave{height:100%;overflow:auto;padding:20px;background:#07101d}.wave h3{font-size:14px;color:#55ddff;font-family:'Space Mono';margin:0 0 12px}.status{font-family:'Space Mono';font-size:11px}.studio-head{height:75px}@media(max-width:900px){.studio{grid-template-columns:1fr;overflow:auto;height:auto}.pane{min-height:500px}.studio-head nav{display:none}}</style></head><body><header class="site-header studio-head"><div class="brand"><img src="logo.png" class="logo"><span>VedASIC Studio</span></div><nav><a href="index.html">← Website</a><span class="status" id="connection">Backend: checking...</span></nav></header><div id="root"></div><script type="text/babel">const {useEffect,useState}=React;const API='http://127.0.0.1:8000';const defaultRTL=`module and_gate(\n    input a,\n    input b,\n    output y\n);\n\nassign y = a & b;\n\nendmodule`;const defaultTB=`module tb;\nreg a;\nreg b;\nwire y;\n\nand_gate dut(\n  .a(a), .b(b), .y(y)\n);\n\ninitial begin\n  $dumpfile("dump.vcd");\n  $dumpvars(0, tb);\n  $monitor("a=%b b=%b y=%b", a, b, y);\n  a=0; b=0; #10;\n  a=0; b=1; #10;\n  a=1; b=0; #10;\n  a=1; b=1; #10;\n  $finish;\nend\nendmodule`;function App(){const[rtl,setRtl]=useState(defaultRTL),[tb,setTb]=useState(defaultTB),[output,setOutput]=useState('Ready. Write RTL and testbench, then run simulation.'),[err,setErr]=useState(''),[busy,setBusy]=useState(false),[wave,setWave]=useState(null);useEffect(()=>{window.require(['vs/editor/editor.main'],()=>{window.monaco.editor.create(document.getElementById('rtl'),{value:rtl,language:'verilog',theme:'vs-dark',automaticLayout:true,minimap:{enabled:false},fontSize:14});window.monaco.editor.create(document.getElementById('tb'),{value:tb,language:'verilog',theme:'vs-dark',automaticLayout:true,minimap:{enabled:false},fontSize:14});const ed=window.monaco.editor.getModels();window.rtlModel=ed[0];window.tbModel=ed[1];});fetch(API+'/').then(()=>document.getElementById('connection').textContent='Backend: online').catch(()=>document.getElementById('connection').textContent='Backend: offline');},[]);async function run(){setBusy(true);setErr('');setOutput('Compiling and simulating...');try{const r=await fetch(API+'/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verilog_code:window.rtlModel?.getValue()||rtl,testbench_code:window.tbModel?.getValue()||tb})});const d=await r.json();if(!d.success){setErr(d.error||'Simulation failed.');setOutput(d.stage||'error');setWave(null)}else{setOutput(d.output||'Simulation completed successfully.');setWave(d.waveform||null)}}catch(e){setErr('Cannot reach FastAPI. Start the backend with: uvicorn backend.main:app --reload');setOutput('Connection error')}finally{setBusy(false)}}return <div className="studio"><section className="pane editor-wrap"><div className="bar"><span className="tab">design.v</span><button className="run" disabled={busy} onClick={run}>{busy?'RUNNING...':'▶ RUN SIMULATION'}</button></div><div className="grid grid-rows-2 min-h-0"><div id="rtl" className="editor"></div><div id="tb" className="editor border-t border-slate-800"></div></div><div className="bottom"><div className="output-title">SIMULATION OUTPUT</div><div className={err?'error':'ok'}>{err||output}</div></div></section><section className="wave"><h3>WAVEFORM / DIAGNOSTICS</h3>{wave?<div><pre className="text-xs text-slate-400 whitespace-pre-wrap">{JSON.stringify(wave,null,2)}</pre><div className="mt-5 border border-slate-800 rounded-lg p-4"><div className="text-sm text-slate-300 mb-2">Signals detected: {wave.signals?.join(', ')||'none'}</div><div className="text-xs text-slate-500">VCD trace received from the simulator. This panel is the integration point for the final WaveDrom renderer.</div></div></div>:<div className="text-slate-500 text-sm leading-7">Run the example to populate simulation diagnostics.<br/>Next layer: render the returned VCD vectors with WaveDrom and add Three.js/WebGL physical-design visuals.</div>}</section></div>}ReactDOM.createRoot(document.getElementById('root')).render(<App/>);</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>VedASIC Studio</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+<!-- WaveDrom Script and Default Theme -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wavedrom/3.1.0/skins/default.js" type="text/javascript"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wavedrom/3.1.0/wavedrom.min.js" type="text/javascript"></script>
+<script>
+window.require = {
+    paths: {
+        vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs"
+    }
+};
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+
+<link rel="stylesheet" href="styles.css">
+
+<style>
+
+body {
+    overflow: hidden;
+}
+
+.studio {
+    height: calc(100vh - 75px);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: #050914;
+}
+
+.pane {
+    min-width: 0;
+    border-right: 1px solid rgba(92,210,255,.16);
+}
+
+.editor-wrap {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+}
+
+.bar {
+    padding: 10px 14px;
+    background: #08111f;
+    border-bottom: 1px solid rgba(92,210,255,.16);
+
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.tab {
+    font-family: 'Space Mono';
+    font-size: 12px;
+    color: #8da2ba;
+}
+
+.actions {
+    display: flex;
+    gap: 8px;
+}
+
+.run {
+    border: none;
+    border-radius: 7px;
+
+    padding: 8px 12px;
+
+    color: #03101c;
+    font-weight: 800;
+
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.run:disabled {
+    opacity: .5;
+    cursor: wait;
+}
+
+.sim {
+    background: #55ddff;
+}
+
+.verify {
+    background: #65f1b1;
+}
+
+.synth {
+    background: #c9a7ff;
+}
+
+.editors {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    min-height: 0;
+}
+
+.editor {
+    min-height: 0;
+}
+
+.bottom {
+    height: 190px;
+    overflow: auto;
+
+    background: #02060e;
+
+    padding: 14px;
+
+    font-family: 'Space Mono';
+    font-size: 12px;
+}
+
+.output-title {
+    color: #55ddff;
+    margin-bottom: 8px;
+}
+
+.error {
+    color: #ff7d96;
+    white-space: pre-wrap;
+}
+
+.ok {
+    color: #65f1b1;
+    white-space: pre-wrap;
+}
+
+.wave {
+    height: 100%;
+    overflow: auto;
+
+    padding: 20px;
+
+    background: #07101d;
+}
+
+.wave h3 {
+    font-size: 14px;
+
+    color: #55ddff;
+
+    font-family: 'Space Mono';
+
+    margin: 0 0 12px;
+}
+
+.status {
+    font-family: 'Space Mono';
+    font-size: 11px;
+}
+
+.studio-head {
+    height: 75px;
+}
+
+.stage {
+    display: inline-block;
+
+    padding: 4px 8px;
+
+    border-radius: 5px;
+
+    font-size: 10px;
+
+    font-family: 'Space Mono';
+
+    margin-bottom: 12px;
+}
+
+.stage-pass {
+    background: rgba(101,241,177,.12);
+    color: #65f1b1;
+}
+
+.stage-fail {
+    background: rgba(255,125,150,.12);
+    color: #ff7d96;
+}
+
+.stage-run {
+    background: rgba(85,221,255,.12);
+    color: #55ddff;
+}
+
+.input-box {
+    width: 100%;
+
+    background: #02060e;
+
+    border: 1px solid #1d3045;
+
+    color: #b9c7d8;
+
+    border-radius: 6px;
+
+    padding: 8px;
+
+    font-family: 'Space Mono';
+
+    font-size: 11px;
+}
+
+textarea {
+    width: 100%;
+    height: 70px;
+
+    background: #02060e;
+
+    border: 1px solid #1d3045;
+
+    color: #b9c7d8;
+
+    border-radius: 6px;
+
+    padding: 8px;
+
+    font-family: 'Space Mono';
+
+    font-size: 11px;
+
+    resize: vertical;
+}
+
+label {
+    font-size: 11px;
+    color: #71839a;
+}
+
+@media(max-width:900px) {
+
+    .studio {
+        grid-template-columns: 1fr;
+        overflow: auto;
+        height: auto;
+    }
+
+    .pane {
+        min-height: 700px;
+    }
+
+    .wave {
+        min-height: 500px;
+    }
+
+    .studio-head nav {
+        display: none;
+    }
+
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<header class="site-header studio-head">
+
+    <div class="brand">
+
+        <img
+            src="logo.png"
+            class="logo"
+        >
+
+        <span>
+            VedASIC Studio
+        </span>
+
+    </div>
+
+
+    <nav>
+
+        <a href="index.html">
+            ← Website
+        </a>
+
+        <span
+            class="status"
+            id="connection"
+        >
+            Backend: checking...
+        </span>
+
+    </nav>
+
+</header>
+
+
+<div id="root"></div>
+
+
+<script type="text/babel">
+
+const {
+    useEffect,
+    useState
+} = React;
+
+
+const API = "http://127.0.0.1:8000";
+
+
+/* =====================================
+   DEFAULT RTL
+===================================== */
+
+const defaultRTL = `module and_gate(
+    input a,
+    input b,
+    output y
+);
+
+assign y = a & b;
+
+endmodule`;
+
+
+/* =====================================
+   DEFAULT TESTBENCH
+===================================== */
+
+const defaultTB = `module tb;
+
+reg a;
+reg b;
+
+wire y;
+
+
+and_gate dut(
+    .a(a),
+    .b(b),
+    .y(y)
+);
+
+
+initial begin
+
+    $dumpfile("dump.vcd");
+
+    $dumpvars(0, tb);
+
+    $monitor(
+        "a=%b b=%b y=%b",
+        a,
+        b,
+        y
+    );
+
+
+    a = 0;
+    b = 0;
+    #10;
+
+    a = 0;
+    b = 1;
+    #10;
+
+    a = 1;
+    b = 0;
+    #10;
+
+    a = 1;
+    b = 1;
+    #10;
+
+
+    $finish;
+
+end
+
+endmodule`;
+
+
+/* =====================================
+   APP
+===================================== */
+
+function App() {
+
+
+    const [rtl, setRtl] =
+        useState(defaultRTL);
+
+
+    const [tb, setTb] =
+        useState(defaultTB);
+
+
+    const [output, setOutput] =
+        useState(
+            "Ready. Write RTL and testbench."
+        );
+
+
+    const [error, setError] =
+        useState("");
+
+
+    const [busy, setBusy] =
+        useState(false);
+
+
+    const [wave, setWave] =
+        useState(null);
+
+
+    const [netlist, setNetlist] =
+        useState("");
+
+
+    const [stage, setStage] =
+        useState("READY");
+
+
+    const [expected, setExpected] =
+        useState("");
+
+
+    const [topModule, setTopModule] =
+        useState("");
+
+
+    /* =====================================
+       MONACO
+    ===================================== */
+
+    useEffect(() => {
+
+        window.require(
+            ["vs/editor/editor.main"],
+
+            () => {
+
+                window.monaco.editor.create(
+
+                    document.getElementById("rtl"),
+
+                    {
+                        value: rtl,
+
+                        language: "verilog",
+
+                        theme: "vs-dark",
+
+                        automaticLayout: true,
+
+                        minimap: {
+                            enabled: false
+                        },
+
+                        fontSize: 14
+                    }
+
+                );
+
+
+                window.monaco.editor.create(
+
+                    document.getElementById("tb"),
+
+                    {
+                        value: tb,
+
+                        language: "verilog",
+
+                        theme: "vs-dark",
+
+                        automaticLayout: true,
+
+                        minimap: {
+                            enabled: false
+                        },
+
+                        fontSize: 14
+                    }
+
+                );
+
+
+                const models =
+                    window.monaco.editor.getModels();
+
+
+                window.rtlModel =
+                    models[0];
+
+
+                window.tbModel =
+                    models[1];
+
+            }
+
+        );
+
+
+        /* Backend status */
+
+        fetch(API + "/health")
+
+            .then(response =>
+                response.json()
+            )
+
+            .then(data => {
+
+                document
+                    .getElementById("connection")
+                    .textContent =
+                    data.status === "online"
+                        ? "Backend: online"
+                        : "Backend: offline";
+
+            })
+
+            .catch(() => {
+
+                document
+                    .getElementById("connection")
+                    .textContent =
+                    "Backend: offline";
+
+            });
+
+    }, []);
+
+
+    /* =====================================
+       GET EDITOR CONTENT
+    ===================================== */
+
+    function getCode() {
+
+        return {
+
+            verilog_code:
+                window.rtlModel
+                    ? window.rtlModel.getValue()
+                    : rtl,
+
+            testbench_code:
+                window.tbModel
+                    ? window.tbModel.getValue()
+                    : tb
+
+        };
+
+    }
+
+
+    /* =====================================
+       API REQUEST
+    ===================================== */
+
+    async function request(
+        endpoint,
+        body
+    ) {
+
+        setBusy(true);
+
+        setError("");
+
+        setNetlist("");
+
+        setWave(null);
+
+        setStage("RUNNING");
+
+
+        setOutput(
+            "Running " +
+            endpoint
+                .replace("/", "")
+                .toUpperCase() +
+            "..."
+        );
+
+
+        try {
+
+            const response =
+                await fetch(
+
+                    API + endpoint,
+
+                    {
+
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body:
+                            JSON.stringify(body)
+
+                    }
+
+                );
+
+
+            const data =
+                await response.json();
+
+
+            /* Stage */
+
+            setStage(
+
+                data.status ||
+
+                (
+                    data.success
+                        ? "PASS"
+                        : "FAIL"
+                )
+
+            );
+
+
+            /* Error */
+
+            if (!data.success) {
+
+                setError(
+                    data.error ||
+                    "Operation failed."
+                );
+
+                setOutput(
+                    data.stage ||
+                    "error"
+                );
+
+                setWave(
+                    data.waveform ||
+                    null
+                );
+
+                return data;
+
+            }
+
+
+            /* Output */
+
+            setOutput(
+
+                data.output ||
+
+                data.message ||
+
+                data.yosys_output ||
+
+                "Operation completed successfully."
+
+            );
+
+
+            /* Waveform */
+
+            setWave(
+                data.waveform ||
+                null
+            );
+
+
+            /* Netlist */
+
+            if (data.netlist) {
+
+                setNetlist(
+                    data.netlist
+                );
+
+            }
+
+
+            return data;
+
+
+        }
+
+        catch (e) {
+
+            setStage("FAIL");
+
+
+            setError(
+                "Cannot reach FastAPI.\n\n" +
+
+                "Start backend with:\n" +
+
+                "uvicorn backend.main:app --reload"
+            );
+
+
+            setOutput(
+                "Connection error"
+            );
+
+        }
+
+        finally {
+
+            setBusy(false);
+
+        }
+
+    }
+
+
+    /* =====================================
+       SIMULATION
+    ===================================== */
+
+    async function simulate() {
+
+        await request(
+
+            "/simulate",
+
+            getCode()
+
+        );
+
+    }
+
+
+    /* =====================================
+       VERIFICATION
+    ===================================== */
+
+    async function verify() {
+
+        await request(
+
+            "/verify",
+
+            {
+
+                ...getCode(),
+
+                expected_output:
+                    expected.trim()
+                        ? expected
+                        : null
+
+            }
+
+        );
+
+    }
+
+
+    /* =====================================
+       SYNTHESIS
+    ===================================== */
+
+    async function synthesize() {
+
+        await request(
+
+            "/synthesize",
+
+            {
+
+                verilog_code:
+
+                    window.rtlModel
+                        ? window.rtlModel.getValue()
+                        : rtl,
+
+                top_module:
+
+                    topModule.trim()
+                        ? topModule
+                        : null
+
+            }
+
+        );
+
+    }
+
+
+    /* =====================================
+       UI
+    ===================================== */
+
+    return (
+
+        <div className="studio">
+
+
+            {/* =================================
+                LEFT SIDE
+            ================================= */}
+
+            <section className="pane editor-wrap">
+
+
+                <div className="bar">
+
+                    <span className="tab">
+
+                        design.v + testbench.v
+
+                    </span>
+
+
+                    <div className="actions">
+
+
+                        <button
+
+                            className="run sim"
+
+                            disabled={busy}
+
+                            onClick={simulate}
+
+                        >
+
+                            ▶ SIMULATE
+
+                        </button>
+
+
+                        <button
+
+                            className="run verify"
+
+                            disabled={busy}
+
+                            onClick={verify}
+
+                        >
+
+                            ✓ VERIFY
+
+                        </button>
+
+
+                        <button
+
+                            className="run synth"
+
+                            disabled={busy}
+
+                            onClick={synthesize}
+
+                        >
+
+                            ⚙ SYNTHESIZE
+
+                        </button>
+
+
+                    </div>
+
+                </div>
+
+
+                {/* Editors */}
+
+                <div className="editors">
+
+
+                    <div
+                        id="rtl"
+                        className="editor"
+                    ></div>
+
+
+                    <div
+                        id="tb"
+                        className="editor border-t border-slate-800"
+                    ></div>
+
+
+                </div>
+
+
+                {/* Output */}
+
+                <div className="bottom">
+
+
+                    <div className="output-title">
+
+                        PIPELINE STATUS
+
+                    </div>
+
+
+                    <span
+
+                        className={
+
+                            "stage " +
+
+                            (
+
+                                stage === "PASS"
+
+                                    ? "stage-pass"
+
+                                    : stage === "FAIL"
+
+                                    ? "stage-fail"
+
+                                    : "stage-run"
+
+                            )
+
+                        }
+
+                    >
+
+                        {stage}
+
+                    </span>
+
+
+                    <div
+
+                        className={
+                            error
+                                ? "error"
+                                : "ok"
+                        }
+
+                    >
+
+                        {error || output}
+
+                    </div>
+
+
+                </div>
+
+
+            </section>
+
+
+            {/* =================================
+                RIGHT SIDE
+            ================================= */}
+
+            <section className="wave">
+
+
+                <h3>
+
+                    VEDASIC PIPELINE
+
+                </h3>
+
+
+                {/* Expected output */}
+
+                <div className="mb-5">
+
+
+                    <div className="text-xs text-slate-500 mb-2">
+
+                        Verification expected output
+                        <span className="ml-1">
+                            (optional)
+                        </span>
+
+                    </div>
+
+
+                    <textarea
+
+                        value={expected}
+
+                        onChange={
+                            e =>
+                                setExpected(
+                                    e.target.value
+                                )
+                        }
+
+                        placeholder={
+                            "Paste expected simulation output here..."
+                        }
+
+                    />
+
+                </div>
+
+
+                {/* Top module */}
+
+                <div className="mb-5">
+
+
+                    <label>
+
+                        TOP MODULE FOR YOSYS
+
+                    </label>
+
+
+                    <input
+
+                        value={topModule}
+
+                        onChange={
+                            e =>
+                                setTopModule(
+                                    e.target.value
+                                )
+                        }
+
+                        placeholder={
+                            "Auto-detect if empty"
+                        }
+
+                        className="input-box mt-1"
+
+                    />
+
+                </div>
+
+
+                {/* Pipeline */}
+
+                <div className="border border-slate-800 rounded-lg p-4 mb-5">
+
+
+                    <div className="text-sm text-slate-300 mb-3">
+
+                        RTL → Simulate → Verify → Synthesize
+
+                    </div>
+
+
+                    <div className="text-xs text-slate-500 leading-6">
+
+                        <div>
+                            01 · RTL Editor
+                        </div>
+
+                        <div>
+                            02 · Icarus Verilog Simulation
+                        </div>
+
+                        <div>
+                            03 · Output Verification
+                        </div>
+
+                        <div>
+                            04 · Yosys Synthesis
+                        </div>
+
+                        <div>
+                            05 · OpenLane / Sky130 — next
+                        </div>
+
+                        <div>
+                            06 · GDSII — next
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                {/* Waveform */}
+
+                {wave && (
+
+                    <div className="border border-slate-800 rounded-lg p-4 mb-5">
+
+
+                        <h3>
+
+                            WAVEFORM / DIAGNOSTICS
+
+                        </h3>
+                        
+                      <!-- Dynamic Waveform Rendering Target -->
+                         <div id="waveform-target" style="background-color: #1e1e1e; padding: 15px; border-radius: 6px; overflow-x: auto;">
+                            <p style="color: #888;">Run simulation to generate timing diagrams...</p>
+                        </div>
+
+
+                        <div className="text-sm text-slate-300 mb-2">
+
+                            Signals detected:
+
+                        </div>
+
+
+                        <div className="text-xs text-slate-400 break-words">
+
+                            {
+                                wave.signals &&
+                                wave.signals.length
+                                    ? wave.signals.join(", ")
+                                    : "none"
+                            }
+
+                        </div>
+
+
+                    </div>
+
+                )}
+
+
+                {/* Netlist */}
+
+                {netlist && (
+
+                    <div className="border border-slate-800 rounded-lg p-4">
+
+
+                        <h3>
+
+                            SYNTHESIZED NETLIST
+
+                        </h3>
+
+
+                        <pre className="text-xs text-slate-400 whitespace-pre-wrap max-h-96 overflow-auto">
+
+                            {netlist}
+
+                        </pre>
+
+
+                    </div>
+
+                )}
+
+
+                {/* Empty state */}
+
+                {!wave && !netlist && (
+
+                    <div className="text-slate-500 text-sm leading-7">
+
+                        Run <b>SIMULATE</b> to execute RTL.
+
+                        <br />
+
+                        Run <b>VERIFY</b> to check the result.
+
+                        <br />
+
+                        Run <b>SYNTHESIZE</b> to generate
+                        the Yosys netlist.
+
+                    </div>
+
+                )}
+
+
+            </section>
+
+
+        </div>
+
+    );
+
+}
+
+
+/* =====================================
+   START REACT
+===================================== */
+
+ReactDOM
+    .createRoot(
+        document.getElementById("root")
+    )
+    .render(
+        <App />
+    );
+
+/**
+ * Converts VCD signal traces into WaveDrom JSON format
+ * @param {Object} vcdData - The trace object returned by your FastAPI backend
+ * @returns {Object} WaveDrom JSON structure
+ */
+function convertVcdToWaveDrom(vcdData) {
+    // Basic WaveDrom data structure
+    const waveDromObj = {
+        signal: []
+    };
+
+    // If backend returns a list of signal names and state vectors
+    if (vcdData && vcdData.signals) {
+        vcdData.signals.forEach(sigName => {
+            // Get wave string (e.g. "0101") or construct default transition pattern
+            const wavePattern = vcdData.waves ? vcdData.waves[sigName] : "x.1010";
+            
+            waveDromObj.signal.push({
+                name: sigName,
+                wave: wavePattern
+            });
+        });
+    } else {
+        // Fallback demo structure if backend sends basic signal names
+        waveDromObj.signal = [
+            { name: "a", wave: "0.1.0.1." },
+            { name: "b", wave: "0..1..0." },
+            { name: "y", wave: "0...1.0." }
+        ];
+    }
+
+    return waveDromObj;
+}
+
+</script>
+
+</body>
+</html>
